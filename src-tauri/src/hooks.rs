@@ -1,4 +1,4 @@
-﻿use crate::{input, runtime_diagnostics};
+use crate::{input, runtime_diagnostics};
 use serde::{Deserialize, Serialize};
 use std::{
     sync::{
@@ -661,6 +661,15 @@ fn reconcile_current_key_before_down(virtual_key: u32, physically_pressed: bool)
     }
 }
 
+fn mark_keyboard_key_pressed_at(
+    state_code: u32,
+    event_time: u32,
+    reported_vk_was_pressed: bool,
+) -> bool {
+    reconcile_current_key_before_down(state_code, reported_vk_was_pressed);
+    mark_key_pressed_at(state_code, event_time)
+}
+
 fn mark_key_pressed_at(virtual_key: u32, event_time: u32) -> bool {
     let is_new = mark_key_pressed(virtual_key);
     let previous_time = usize::try_from(virtual_key)
@@ -1130,13 +1139,17 @@ unsafe extern "system" fn keyboard_hook(code: i32, wparam: WPARAM, lparam: LPARA
                         // asynchronous state. If our bit is still set but the
                         // pre-event state is up, the corresponding KeyUp was
                         // missed and this is a real new press, not auto-repeat.
-                        reconcile_current_key_before_down(
+                        // The async state follows the virtual key Windows
+                        // reported, even when `resolved_vk` gives that event a
+                        // different physical identity for shortcut matching.
+                        // Querying `resolved_vk` here would make every
+                        // Shift+numpad auto-repeat look like a fresh press.
+                        let is_new_press = mark_keyboard_key_pressed_at(
                             state_code,
-                            async_key_is_pressed(resolved_vk),
+                            event.time,
+                            async_key_is_pressed(event.vkCode),
                         );
-                        if mark_key_pressed_at(state_code, event.time)
-                            && key_is_relevant(resolved_vk)
-                        {
+                        if is_new_press && key_is_relevant(resolved_vk) {
                             let captured_for_binding = forwards_all_inputs();
                             reconcile_pressed_inputs(captured_for_binding, key);
                             queue_event(InputEvent::Edge(InputEdge {
@@ -1305,10 +1318,8 @@ fn shifted_numpad_vk(vk_code: u32, scan_code: u32, flags: u32) -> Option<u32> {
     // physical scan-code fingerprint in `shifted_numpad_vk_inner` is enough:
     // with NumLock on, a non-extended navigation/editing virtual code can only
     // originate from a shifted physical numpad digit.
-    if !numlock_is_on() {
-        return None;
-    }
-    shifted_numpad_vk_inner(vk_code, scan_code, flags)
+    let physical_vk = shifted_numpad_vk_inner(vk_code, scan_code, flags)?;
+    numlock_is_on().then_some(physical_vk)
 }
 
 fn numlock_is_on() -> bool {
@@ -1322,24 +1333,21 @@ fn shifted_numpad_vk_inner(vk_code: u32, scan_code: u32, flags: u32) -> Option<u
     if flags & 1 != 0 {
         return None;
     }
-    // VK_CLEAR (0x0c), Home/End/PageUp/PageDown (0x21..=0x24, 0x2d, 0x2e) and
-    // arrows (0x25..=0x28) are the codes Windows can report for shifted
-    // numpad digits.
-    if !matches!(vk_code, 0x0c | 0x21..=0x28 | 0x2d | 0x2e) {
-        return None;
-    }
-    match scan_code {
-        0x47 => Some(0x67), // Numpad7
-        0x48 => Some(0x68), // Numpad8
-        0x49 => Some(0x69), // Numpad9
-        0x4b => Some(0x64), // Numpad4
-        0x4c => Some(0x65), // Numpad5
-        0x4d => Some(0x66), // Numpad6
-        0x4f => Some(0x61), // Numpad1
-        0x50 => Some(0x62), // Numpad2
-        0x51 => Some(0x63), // Numpad3
-        0x52 => Some(0x60), // Numpad0
-        0x53 => Some(0x6e), // NumpadDecimal
+    // Require the exact navigation virtual-key and scan-code pair emitted for
+    // each physical numpad key. This preserves unusual but legitimate input
+    // from drivers and remappers instead of assigning it a false numpad name.
+    match (vk_code, scan_code) {
+        (0x24, 0x47) => Some(0x67), // Home -> Numpad7
+        (0x26, 0x48) => Some(0x68), // Up -> Numpad8
+        (0x21, 0x49) => Some(0x69), // PageUp -> Numpad9
+        (0x25, 0x4b) => Some(0x64), // Left -> Numpad4
+        (0x0c, 0x4c) => Some(0x65), // Clear -> Numpad5
+        (0x27, 0x4d) => Some(0x66), // Right -> Numpad6
+        (0x23, 0x4f) => Some(0x61), // End -> Numpad1
+        (0x28, 0x50) => Some(0x62), // Down -> Numpad2
+        (0x22, 0x51) => Some(0x63), // PageDown -> Numpad3
+        (0x2d, 0x52) => Some(0x60), // Insert -> Numpad0
+        (0x2e, 0x53) => Some(0x6e), // Delete -> NumpadDecimal
         _ => None,
     }
 }
@@ -1475,22 +1483,53 @@ mod tests {
 
     #[test]
     fn shifted_numpad_events_are_resolved_to_physical_digits() {
-        // NumLock on + Shift: Numpad1 is reported as VK_END (0x23), scan 0x4f.
-        assert_eq!(shifted_numpad_vk_inner(0x23, 0x4f, 0), Some(0x61));
-        // Numpad5 as VK_CLEAR (0x0c), scan 0x4c.
-        assert_eq!(shifted_numpad_vk_inner(0x0c, 0x4c, 0), Some(0x65));
-        // Numpad2 as VK_DOWN (0x28), scan 0x50.
-        assert_eq!(shifted_numpad_vk_inner(0x28, 0x50, 0), Some(0x62));
-        // Numpad0 as VK_INSERT (0x2d), scan 0x52.
-        assert_eq!(shifted_numpad_vk_inner(0x2d, 0x52, 0), Some(0x60));
-        // NumpadDecimal as VK_DELETE (0x2e), scan 0x53.
-        assert_eq!(shifted_numpad_vk_inner(0x2e, 0x53, 0), Some(0x6e));
-        // Extended events (main-keyboard arrows / editing cluster) untouched.
-        assert_eq!(shifted_numpad_vk_inner(0x23, 0x4f, 1), None);
-        // Non-numpad scan codes are not rewritten.
+        let cases = [
+            (0x24, 0x47, 0x67),
+            (0x26, 0x48, 0x68),
+            (0x21, 0x49, 0x69),
+            (0x25, 0x4b, 0x64),
+            (0x0c, 0x4c, 0x65),
+            (0x27, 0x4d, 0x66),
+            (0x23, 0x4f, 0x61),
+            (0x28, 0x50, 0x62),
+            (0x22, 0x51, 0x63),
+            (0x2d, 0x52, 0x60),
+            (0x2e, 0x53, 0x6e),
+        ];
+
+        for (reported_vk, scan_code, physical_vk) in cases {
+            assert_eq!(
+                shifted_numpad_vk_inner(reported_vk, scan_code, 0),
+                Some(physical_vk)
+            );
+            assert_eq!(
+                shifted_numpad_vk_inner(reported_vk, scan_code, 1),
+                None,
+                "extended navigation keys must stay untouched"
+            );
+        }
+
+        assert_eq!(shifted_numpad_vk_inner(0x23, 0x50, 0), None);
         assert_eq!(shifted_numpad_vk_inner(0x23, 0x01, 0), None);
-        // Unrelated virtual codes are not rewritten.
         assert_eq!(shifted_numpad_vk_inner(0x61, 0x4f, 0), None);
+    }
+
+    #[test]
+    fn shifted_numpad_auto_repeat_is_suppressed() {
+        let _state_guard = FILTER_UPDATE_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        reset_pressed_inputs();
+
+        assert!(mark_keyboard_key_pressed_at(0x61, 100, false));
+        assert!(
+            !mark_keyboard_key_pressed_at(0x61, 200, true),
+            "a held Shift+numpad key must not retrigger its shortcut"
+        );
+        mark_key_released(0x61);
+        assert!(mark_keyboard_key_pressed_at(0x61, 300, false));
+        mark_key_released(0x61);
+        reset_pressed_inputs();
     }
 
     fn macro_payload() -> input::MacroPayload {
@@ -1598,6 +1637,26 @@ mod tests {
             routed_macro_index(state.route("Digit1", pressed_inputs(&["Digit1"]))),
             None
         );
+    }
+
+    #[test]
+    fn native_matching_accepts_both_shift_sides_with_numpad_keys() {
+        for (shift, overlay_index) in [("ShiftLeft", 8), ("ShiftRight", 9)] {
+            let hotkey = format!("{shift}+Numpad1");
+            let state = ShortcutState::build(shortcut_config(
+                vec![macro_binding(&hotkey, overlay_index)],
+                None,
+                false,
+                None,
+            ))
+            .expect("valid Shift+numpad shortcut table");
+            let held = pressed_inputs(&[shift, "Numpad1"]);
+
+            assert_eq!(
+                routed_macro_index(state.route("Numpad1", held)),
+                Some(overlay_index)
+            );
+        }
     }
 
     #[test]
@@ -1834,4 +1893,3 @@ mod tests {
         );
     }
 }
-
