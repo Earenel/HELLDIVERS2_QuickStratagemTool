@@ -2,7 +2,7 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "main-capability",
   "description": "Base capability for every local HD2 Macro Terminal Rust window.",
-  "windows": ["main", "overlay", "toast", "ocr-select", "ocr-help", "sponsor"],
+  "windows": ["main", "overlay", "toast", "ocr-select", "ocr-help"],
   "permissions": [
     "core:event:allow-listen",
     "core:event:allow-unlisten",

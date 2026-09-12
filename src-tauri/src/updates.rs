@@ -1,6 +1,5 @@
 use semver::Version;
 use serde::{Deserialize, Serialize};
-use std::time::Instant;
 use windows::{
     core::{w, PCWSTR},
     Win32::UI::{Shell::ShellExecuteW, WindowsAndMessaging::SW_SHOWNORMAL},
@@ -22,18 +21,6 @@ pub struct UpdateInfo {
     pub release_name: Option<String>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct UpdateEndpointDiagnostics {
-    pub endpoint_host: &'static str,
-    pub reachable: bool,
-    pub valid_response: bool,
-    pub latest_version: Option<String>,
-    pub update_available: Option<bool>,
-    pub latency_ms: u128,
-    pub error: Option<String>,
-}
-
 #[derive(Debug, Deserialize)]
 struct ReleasePayload {
     tag_name: String,
@@ -50,48 +37,16 @@ pub fn check_for_update() -> Result<Option<UpdateInfo>, String> {
     available_update(&payload, env!("CARGO_PKG_VERSION"))
 }
 
-pub fn diagnose_endpoint() -> UpdateEndpointDiagnostics {
-    let started = Instant::now();
-    match fetch_latest_release() {
-        Ok(payload) => match parse_release_tag(&payload.tag_name) {
-            Ok(version) => {
-                let update_available = available_update(&payload, env!("CARGO_PKG_VERSION"))
-                    .ok()
-                    .map(|update| update.is_some());
-                UpdateEndpointDiagnostics {
-                    endpoint_host: UPDATE_ENDPOINT_HOST,
-                    reachable: true,
-                    valid_response: true,
-                    latest_version: Some(version.to_string()),
-                    update_available,
-                    latency_ms: started.elapsed().as_millis(),
-                    error: None,
-                }
-            }
-            Err(error) => UpdateEndpointDiagnostics {
-                endpoint_host: UPDATE_ENDPOINT_HOST,
-                reachable: true,
-                valid_response: false,
-                latest_version: None,
-                update_available: None,
-                latency_ms: started.elapsed().as_millis(),
-                error: Some(compact_error(&error)),
-            },
-        },
-        Err(error) => UpdateEndpointDiagnostics {
-            endpoint_host: UPDATE_ENDPOINT_HOST,
-            reachable: false,
-            valid_response: false,
-            latest_version: None,
-            update_available: None,
-            latency_ms: started.elapsed().as_millis(),
-            error: Some(compact_error(&error)),
-        },
-    }
+pub fn open_releases_page() -> Result<(), String> {
+    open_github_page(RELEASES_PAGE_URL)
 }
 
-pub fn open_releases_page() -> Result<(), String> {
-    let url = wide_null(RELEASES_PAGE_URL);
+pub fn open_repository_page() -> Result<(), String> {
+    open_github_page("https://github.com/Ooxygen7/HELLDIVERS2_QuickStratagemTool")
+}
+
+fn open_github_page(url: &str) -> Result<(), String> {
+    let url = wide_null(url);
     // SAFETY: all strings are valid, nul-terminated UTF-16 buffers that remain
     // alive for the synchronous ShellExecuteW call. No window handle is needed.
     let result = unsafe {
@@ -107,7 +62,7 @@ pub fn open_releases_page() -> Result<(), String> {
     let result_code = result.0 as usize;
     if result_code <= 32 {
         Err(format!(
-            "Windows could not open the GitHub Releases page (code {result_code})"
+            "Windows could not open the GitHub page (code {result_code})"
         ))
     } else {
         Ok(())
@@ -162,14 +117,6 @@ fn wide_null(value: &str) -> Vec<u16> {
     value.encode_utf16().chain(std::iter::once(0)).collect()
 }
 
-fn compact_error(error: &str) -> String {
-    error
-        .replace(['\r', '\n', '\t'], " ")
-        .chars()
-        .take(320)
-        .collect()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -213,14 +160,6 @@ mod tests {
         let mut prerelease = payload("v.3.0.0-beta.1");
         prerelease.prerelease = true;
         assert!(available_update(&prerelease, "2.0.1").unwrap().is_none());
-    }
-
-    #[test]
-    fn endpoint_diagnostics_error_text_is_single_line_and_bounded() {
-        let error = format!("first\r\nsecond\t{}", "x".repeat(500));
-        let compact = compact_error(&error);
-        assert!(!compact.contains(['\r', '\n', '\t']));
-        assert!(compact.chars().count() <= 320);
     }
 
     #[test]

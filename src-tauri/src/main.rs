@@ -3,13 +3,12 @@
 mod capture;
 mod catalog;
 mod config;
-mod diagnostics;
 mod hooks;
 mod input;
 mod legacy;
 mod network;
 mod ocr;
-mod runtime_diagnostics;
+mod support;
 mod tray;
 mod updates;
 mod windows;
@@ -41,6 +40,7 @@ struct AppState {
     overlay_snapshot: Mutex<OverlaySnapshot>,
     last_toast: Mutex<Option<Value>>,
     toast_generation: AtomicU64,
+    startup_usage: Mutex<support::StartupUsage>,
 }
 
 struct WindowPayloads {
@@ -55,9 +55,6 @@ struct OverlaySnapshot {
     selection: i64,
     locked: bool,
 }
-
-const DEFAULT_SPONSOR_URL: &str =
-    "https://www.yifut.com/paypage/?merchant=a0ccz04gJj%2BJNsdjP9cTbIj2MrN958lGiZ7Ub2SdvLGZ";
 
 fn resolve_ocr_model_dir(app: &AppHandle) -> PathBuf {
     use std::env;
@@ -231,112 +228,12 @@ fn migration_status(state: State<'_, AppState>) -> Result<MigrationReport, Strin
 
 #[tauri::command]
 fn set_global_input_filter(config: hooks::ShortcutConfig, capture_all: bool) -> Result<(), String> {
-    hooks::configure(config, capture_all).inspect_err(|_| {
-        runtime_diagnostics::record_error(
-            "input",
-            "shortcut_filter_update",
-            "configuration_rejected",
-        );
-    })
+    hooks::configure(config, capture_all)
 }
 
 #[tauri::command]
 fn get_input_diagnostics() -> hooks::InputDiagnostics {
     hooks::diagnostics()
-}
-
-#[tauri::command]
-fn record_runtime_failure(operation: String, code: String) {
-    runtime_diagnostics::record_error("frontend", &operation, &code);
-}
-
-#[tauri::command]
-fn record_runtime_warning(operation: String, code: String) {
-    runtime_diagnostics::record_warning("frontend", &operation, &code);
-}
-
-#[tauri::command]
-fn record_binding_diagnostic(stage: String) -> Result<(), String> {
-    runtime_diagnostics::record_binding_stage(&stage)
-}
-
-#[tauri::command]
-async fn collect_diagnostics_report(
-    app: AppHandle,
-    state: State<'_, AppState>,
-) -> Result<diagnostics::DiagnosticReport, String> {
-    let data_dir = state.data_dir.clone();
-    let ocr_model_dir = state.ocr_model_dir.clone();
-    let migration_report = state.migration_report.clone();
-    let overlay_locked = state
-        .overlay_snapshot
-        .lock()
-        .map_err(|_| "Overlay state is unavailable".to_owned())?
-        .locked;
-    let main_window = app.get_webview_window("main");
-    let overlay_window = app.get_webview_window("overlay");
-    let window_diagnostics = diagnostics::WindowDiagnostics {
-        main_window_exists: main_window.is_some(),
-        main_window_visible: main_window
-            .as_ref()
-            .and_then(|window| window.is_visible().ok())
-            .unwrap_or(false),
-        overlay_window_exists: overlay_window.is_some(),
-        overlay_window_visible: overlay_window
-            .as_ref()
-            .and_then(|window| window.is_visible().ok())
-            .unwrap_or(false),
-        overlay_locked,
-    };
-
-    let local_data_dir = data_dir.clone();
-    let local_model_dir = ocr_model_dir.clone();
-    let local_task = tauri::async_runtime::spawn_blocking(move || {
-        diagnostics::collect_local(
-            &local_data_dir,
-            &local_model_dir,
-            migration_report,
-            window_diagnostics,
-        )
-    });
-    let update_task = tauri::async_runtime::spawn_blocking(updates::diagnose_endpoint);
-    let display_task = tauri::async_runtime::spawn_blocking(ocr::available_displays);
-    let ocr_app = app.clone();
-    let ocr_task = tauri::async_runtime::spawn(async move { ocr_model_status(ocr_app).await });
-
-    let local = local_task
-        .await
-        .map_err(|error| format!("Local diagnostics task failed: {error}"))?;
-    let ocr_self_test = ocr_task
-        .await
-        .unwrap_or_else(|error| Err(format!("OCR diagnostics task failed: {error}")));
-    let displays = display_task
-        .await
-        .unwrap_or_else(|error| Err(format!("Display diagnostics task failed: {error}")));
-    let update_service = update_task
-        .await
-        .map_err(|error| format!("Update diagnostics task failed: {error}"))?;
-    Ok(diagnostics::assemble_report(
-        local,
-        ocr_self_test,
-        displays,
-        update_service,
-        &[data_dir, ocr_model_dir],
-    ))
-}
-
-#[tauri::command]
-async fn export_diagnostics_report(
-    app: AppHandle,
-    report: Value,
-) -> Result<diagnostics::ExportResult, String> {
-    let download_dir = app
-        .path()
-        .download_dir()
-        .map_err(|error| format!("Cannot locate the Downloads folder: {error}"))?;
-    tauri::async_runtime::spawn_blocking(move || diagnostics::export_report(&download_dir, &report))
-        .await
-        .map_err(|error| format!("Diagnostics export task failed: {error}"))?
 }
 
 #[tauri::command]
@@ -578,28 +475,40 @@ async fn execute_macro(payload: input::MacroPayload) -> Result<(), String> {
 }
 
 #[tauri::command]
-async fn open_sponsor(app: AppHandle) -> Result<bool, String> {
-    let state = app.state::<AppState>();
-    let _creation = state
-        .window_creation
-        .lock()
-        .map_err(|_| "Window creation is unavailable".to_owned())?;
-    windows::open_sponsor(&app, DEFAULT_SPONSOR_URL.to_owned())?;
-    Ok(true)
+async fn take_startup_star_reminder(app: AppHandle) -> Result<Option<u32>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let result = state
+            .startup_usage
+            .lock()
+            .map_err(|_| "Usage storage is unavailable".to_owned())?
+            .take_reminder(&state.data_dir);
+        result
+    })
+    .await
+    .map_err(|error| format!("Usage task failed: {error}"))?
 }
 
 #[tauri::command]
-async fn close_sponsor_window(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
-    let _creation = state
-        .window_creation
-        .lock()
-        .map_err(|_| "Window creation is unavailable".to_owned())?;
-    windows::destroy_window(&app, "sponsor")
+async fn dismiss_star_reminders(app: AppHandle) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let result = state
+            .startup_usage
+            .lock()
+            .map_err(|_| "Usage storage is unavailable".to_owned())?
+            .dismiss(&state.data_dir);
+        result
+    })
+    .await
+    .map_err(|error| format!("Usage task failed: {error}"))?
 }
 
 #[tauri::command]
-fn get_sponsor_url() -> Result<String, String> {
-    Ok(DEFAULT_SPONSOR_URL.to_owned())
+async fn open_github_repository() -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(updates::open_repository_page)
+        .await
+        .map_err(|error| format!("Open GitHub task failed: {error}"))?
 }
 
 #[tauri::command]
@@ -674,13 +583,11 @@ async fn load_cached_stratagem_catalog(
     match tauri::async_runtime::spawn_blocking(move || catalog::load_cached(&data_dir)).await {
         Ok(Ok(catalog)) => Ok(catalog),
         Ok(Err(_error)) => {
-            runtime_diagnostics::record_warning("catalog", "cache_load", "invalid_cache");
             #[cfg(debug_assertions)]
             eprintln!("Catalog cache skipped: {_error}");
             Ok(None)
         }
         Err(_error) => {
-            runtime_diagnostics::record_warning("catalog", "cache_load", "task_failed");
             #[cfg(debug_assertions)]
             eprintln!("Catalog cache task failed: {_error}");
             Ok(None)
@@ -696,13 +603,11 @@ async fn check_stratagem_catalog_updates(
     match tauri::async_runtime::spawn_blocking(move || catalog::check_for_update(&data_dir)).await {
         Ok(Ok(catalog)) => Ok(catalog),
         Ok(Err(_error)) => {
-            runtime_diagnostics::record_warning("catalog", "update_check", "unavailable");
             #[cfg(debug_assertions)]
             eprintln!("Catalog update skipped: {_error}");
             Ok(None)
         }
         Err(_error) => {
-            runtime_diagnostics::record_warning("catalog", "update_check", "task_failed");
             #[cfg(debug_assertions)]
             eprintln!("Catalog update task failed: {_error}");
             Ok(None)
@@ -912,6 +817,7 @@ fn main() {
                 }),
                 last_toast: Mutex::new(None),
                 toast_generation: AtomicU64::new(0),
+                startup_usage: Mutex::new(support::StartupUsage::default()),
             });
             tray::create(app.handle())?;
             hooks::start(app.handle().clone()).map_err(std::io::Error::other)?;
@@ -923,11 +829,6 @@ fn main() {
             migration_status,
             set_global_input_filter,
             get_input_diagnostics,
-            record_runtime_failure,
-            record_runtime_warning,
-            record_binding_diagnostic,
-            collect_diagnostics_report,
-            export_diagnostics_report,
             toggle_overlay,
             window_minimize,
             window_tray,
@@ -946,9 +847,9 @@ fn main() {
             hide_toast,
             get_last_toast,
             execute_macro,
-            open_sponsor,
-            close_sponsor_window,
-            get_sponsor_url,
+            take_startup_star_reminder,
+            dismiss_star_reminders,
+            open_github_repository,
             open_ocr_help,
             close_ocr_help_window,
             get_ocr_help_language,
