@@ -22,19 +22,16 @@ function checkInlineScripts(filename) {
 checkInlineScripts("index.html");
 checkInlineScripts("overlay.html");
 checkInlineScripts("toast.html");
-checkInlineScripts("sponsor.html");
 checkInlineScripts("ocr-help.html");
 checkInlineScripts("ocr-select.html");
 
 const indexSource = readUiFile("index.html");
 const overlaySource = readUiFile("overlay.html");
-const sponsorSource = readUiFile("sponsor.html");
 const ocrHelpSource = readUiFile("ocr-help.html");
 const mainSource = fs.readFileSync(path.join(root, "src-tauri", "src", "main.rs"), "utf8");
 const hooksSource = fs.readFileSync(path.join(root, "src-tauri", "src", "hooks.rs"), "utf8");
 const inputSource = fs.readFileSync(path.join(root, "src-tauri", "src", "input.rs"), "utf8");
 const windowsSource = fs.readFileSync(path.join(root, "src-tauri", "src", "windows.rs"), "utf8");
-const runtimeDiagnosticsSource = fs.readFileSync(path.join(root, "src-tauri", "src", "runtime_diagnostics.rs"), "utf8");
 const updatesSource = fs.readFileSync(path.join(root, "src-tauri", "src", "updates.rs"), "utf8");
 const networkSource = fs.readFileSync(path.join(root, "src-tauri", "src", "network.rs"), "utf8");
 const catalogSource = fs.readFileSync(path.join(root, "src-tauri", "src", "catalog.rs"), "utf8");
@@ -43,8 +40,6 @@ assert.match(indexSource, /<div id="titlebar" data-tauri-drag-region="deep">/);
 assert.match(indexSource, /<div class="titlebar-controls" data-tauri-drag-region="false">/);
 assert.match(overlaySource, /<div id="drag-bar" data-tauri-drag-region="deep">/);
 assert.match(overlaySource, /<button class="lock-btn" data-tauri-drag-region="false"/);
-assert.match(sponsorSource, /<div id="titlebar" data-tauri-drag-region="deep">/);
-assert.match(sponsorSource, /<button id="close-btn" data-tauri-drag-region="false"/);
 assert.match(ocrHelpSource, /<div id="titlebar" data-tauri-drag-region="deep">/);
 assert.match(ocrHelpSource, /<button id="close-btn" data-tauri-drag-region="false"/);
 
@@ -100,8 +95,6 @@ assert.doesNotMatch(installerHookSource, /CheckIfAppIsRunning "electron\.exe"/i)
 for (const command of [
   "toggle_overlay",
   "show_toast",
-  "open_sponsor",
-  "close_sponsor_window",
   "open_ocr_help",
   "close_ocr_help_window",
   "start_ocr_region_select",
@@ -386,87 +379,9 @@ assert.match(
   "display enumeration failures must not erase a saved OCR region",
 );
 const bridgeSource = readUiFile("bridge.js");
-assert.match(indexSource, /id="btn-top-diagnostics"[^>]*onclick="openDiagnostics\(\)"/);
-assert.match(indexSource, /id="diagnostics-modal"[^>]*role="dialog"[^>]*aria-modal="true"/);
-assert.match(indexSource, /id="btn-diagnostics-export"[^>]*onclick="exportDiagnosticsReport\(\)"/);
-assert.match(indexSource, /No usernames, full paths, hotkey values, stratagem names, or screenshots/);
-assert.match(bridgeSource, /collectDiagnosticsReport:.*collect_diagnostics_report/);
-assert.match(bridgeSource, /exportDiagnosticsReport:.*export_diagnostics_report/);
-assert.match(bridgeSource, /recordRuntimeFailure:.*record_runtime_failure/);
-assert.match(bridgeSource, /recordRuntimeWarning:.*record_runtime_warning/);
-assert.match(bridgeSource, /recordBindingDiagnostic:.*record_binding_diagnostic/);
-assert.match(mainSource, /async fn\s+collect_diagnostics_report\s*\(/);
-assert.match(mainSource, /async fn\s+export_diagnostics_report\s*\(/);
-assert.match(mainSource, /fn\s+record_binding_diagnostic\s*\(/);
-assert.match(runtimeDiagnosticsSource, /const MAX_RECENT_INCIDENTS:\s*usize\s*=\s*32/);
-assert.match(runtimeDiagnosticsSource, /fn\s+allowlisted_operation\s*\(/);
-assert.match(runtimeDiagnosticsSource, /fn\s+allowlisted_code\s*\(/);
-assert.match(indexSource, /recordBindingDiagnostic\('started'\)/);
-assert.match(indexSource, /recordBindingDiagnostic\('input_observed'\)/);
-assert.match(indexSource, /recordBindingDiagnostic\('completed'\)/);
-assert.match(indexSource, /addEventListener\('error'.*recordRuntimeFailure\('renderer_runtime', 'uncaught_error'\)/);
-assert.match(indexSource, /addEventListener\('unhandledrejection'.*recordRuntimeFailure\('renderer_runtime', 'unhandled_rejection'\)/);
-
-const diagnosticI18nStart = indexSource.indexOf("const diagnosticsI18n = {");
-const diagnosticI18nEnd = indexSource.indexOf("const defaultStratagemDB", diagnosticI18nStart);
-const diagnosticHelperStart = indexSource.indexOf("function fillDiagnosticTemplate");
-const diagnosticHelperEnd = indexSource.indexOf("function updateDiagnosticsI18n", diagnosticHelperStart);
-assert.notEqual(diagnosticI18nStart, -1, "could not find diagnostics translations");
-assert.notEqual(diagnosticI18nEnd, -1, "could not find diagnostics translations end marker");
-assert.notEqual(diagnosticHelperStart, -1, "could not find diagnostic health helpers");
-assert.notEqual(diagnosticHelperEnd, -1, "could not find diagnostic health helper end marker");
-const diagnosticContext = vm.createContext({});
-vm.runInContext(
-  `
-    ${indexSource.slice(diagnosticI18nStart, diagnosticI18nEnd)}
-    let currentLang = "en";
-    ${indexSource.slice(diagnosticHelperStart, diagnosticHelperEnd)}
-    globalThis.diagnosticsHarness = { buildDiagnosticChecks, summarizeDiagnosticChecks };
-  `,
-  diagnosticContext,
-  { filename: "index.html:diagnostic-health" },
-);
-const healthyReport = {
-  application: { version: "2.0.1", architecture: "x86_64", webviewVersion: "140.0" },
-  storage: { writable: true, invalidFileCount: 0, recoverableBackupCount: 0, files: [{ status: "valid" }] },
-  configuration: { settingsLoaded: true, slotCount: 10, equippedStratagems: 4, boundStratagems: 3, presetCount: 2, duplicateBindingGroups: 0 },
-  input: { hookRunning: true, filterInitialized: true, droppedEvents: 0, maxQueueDepth: 2, queueCapacity: 512, processedEvents: 20, shortcutsMatched: 2, unmatchedShortcutEdges: 0, nativeMacrosCompleted: 2, nativeMacrosFailed: 0 },
-  runtime: { errorCount: 0, warningCount: 0, recentIncidents: [], binding: { active: false, attemptsStarted: 1, attemptsCompleted: 1, attemptsFailed: 0, cancellationsWithoutInput: 0 } },
-  ocr: {
-    modelFilesPresent: true,
-    selfTest: { ok: true, value: { detectionModelLoaded: true, recognitionModelLoaded: true, dictionaryEntries: 1000 } },
-    displays: { ok: true, value: { displayCount: 1, primaryWidth: 1920, primaryHeight: 1080, primaryScaleFactor: 1 } },
-  },
-  windows: { mainWindowExists: true, overlayWindowExists: false, overlayLocked: false },
-  updateService: { reachable: true, validResponse: true, latestVersion: "2.0.1", latencyMs: 50 },
-};
-const healthyChecks = diagnosticContext.diagnosticsHarness.buildDiagnosticChecks(healthyReport, "en");
-assert.equal(healthyChecks.length, 12);
-assert.deepEqual(
-  JSON.parse(JSON.stringify(diagnosticContext.diagnosticsHarness.summarizeDiagnosticChecks(healthyChecks))),
-  { healthy: 12, warnings: 0, errors: 0 },
-);
-const unhealthyReport = structuredClone(healthyReport);
-unhealthyReport.updateService = { reachable: false, validResponse: false, error: "offline" };
-unhealthyReport.input.droppedEvents = 2;
-unhealthyReport.ocr.modelFilesPresent = false;
-unhealthyReport.storage.invalidFileCount = 1;
-const unhealthySummary = diagnosticContext.diagnosticsHarness.summarizeDiagnosticChecks(
-  diagnosticContext.diagnosticsHarness.buildDiagnosticChecks(unhealthyReport, "zh"),
-);
-assert.deepEqual(JSON.parse(JSON.stringify(unhealthySummary)), { healthy: 8, warnings: 2, errors: 2 });
-const runtimeFailureReport = structuredClone(healthyReport);
-runtimeFailureReport.runtime.errorCount = 1;
-runtimeFailureReport.runtime.recentIncidents = [{ component: "input", operation: "macro_execution", code: "windows_input_rejected" }];
-runtimeFailureReport.runtime.binding.attemptsFailed = 1;
-runtimeFailureReport.input.nativeMacrosFailed = 1;
-assert.deepEqual(
-  JSON.parse(JSON.stringify(diagnosticContext.diagnosticsHarness.summarizeDiagnosticChecks(
-    diagnosticContext.diagnosticsHarness.buildDiagnosticChecks(runtimeFailureReport, "zh"),
-  ))),
-  { healthy: 10, warnings: 0, errors: 2 },
-  "runtime and shortcut failures must appear as diagnostic errors",
-);
+assert.doesNotMatch(indexSource, /diagnostics-modal|openDiagnostics|recordBindingDiagnostic/);
+assert.doesNotMatch(mainSource, /collect_diagnostics_report|export_diagnostics_report|record_runtime_failure/);
+assert.doesNotMatch(bridgeSource, /collectDiagnosticsReport|recordRuntimeFailure|openSponsor/);
 
 assert.match(bridgeSource, /subscribe\("quit-requested", callback\)/);
 assert.match(indexSource, /window\.electronAPI\.onQuitRequested/);
@@ -524,14 +439,15 @@ assert.match(hooksSource, /pressed_inputs:\s*Vec</, "native events must include 
 assert.match(indexSource, /id="txt-update-title">检测到新版本</);
 assert.match(indexSource, /id="btn-update-download"[^>]*>前往下载</);
 assert.match(indexSource, /id="btn-update-later"[^>]*>暂不</);
-assert.match(indexSource, /void checkForStartupUpdate\(\)/, "startup must trigger a non-blocking update check");
+assert.match(indexSource, /void prepareStartupStarReminder\(\)/, "startup notifications must not block UI readiness");
+assert.match(indexSource, /Promise\.allSettled\(\[[\s\S]{0,250}checkForStartupUpdate\(\)/, "the reminder must preserve the independent update check");
 assert.match(indexSource, /messageElement\.textContent = message/, "server text must never be injected as HTML");
 assert.match(updatesSource, /update\.unsnow\.online/);
 assert.match(updatesSource, /QuickStratagemTool\/releases\/latest/);
 assert.match(networkSource, /WinHttpSetTimeouts/);
 assert.match(updatesSource, /latest_version <= current_version/);
 assert.match(indexSource, /id="txt-catalog-update-title">战备数据库已更新</);
-assert.match(indexSource, /void checkForStratagemCatalogUpdate\(\)/);
+assert.match(indexSource, /Promise\.allSettled\(\[[\s\S]{0,250}checkForStratagemCatalogUpdate\(\)/);
 assert.match(indexSource, /strat\.enabled !== false/);
 assert.match(catalogSource, /Catalog signature verification failed/);
 assert.match(catalogSource, /BUNDLED_CATALOG_VERSION:\s*u64\s*=\s*1/);
@@ -594,7 +510,7 @@ assert.equal(overlayContext.overlayHarness.visible(), true, "a lock failure must
 assert.equal(overlayToasts.at(-1).isError, true, "an auto-lock failure must be visible to the user");
 
 const updateHelperStart = indexSource.indexOf("function updateUpdateModalText");
-const updateHelperEnd = indexSource.indexOf("window.goSponsor", updateHelperStart);
+const updateHelperEnd = indexSource.indexOf("window.openGitHubRepository", updateHelperStart);
 assert.notEqual(updateHelperStart, -1, "could not find update modal helpers");
 assert.notEqual(updateHelperEnd, -1, "could not find update modal helper end marker");
 const updateElements = new Map();
@@ -689,12 +605,10 @@ assert.deepEqual(bridgeCalls, ["begin_exit", "window_close"]);
 await bridgeContext.window.electronAPI.checkForUpdates();
 await bridgeContext.window.electronAPI.openReleaseDownload();
 assert.deepEqual(bridgeCalls.slice(-2), ["check_for_updates", "open_release_download"]);
-await bridgeContext.window.electronAPI.collectDiagnosticsReport();
-await bridgeContext.window.electronAPI.exportDiagnosticsReport({ schemaVersion: 1 });
-assert.deepEqual(bridgeCalls.slice(-2), ["collect_diagnostics_report", "export_diagnostics_report"]);
-await bridgeContext.window.electronAPI.recordRuntimeWarning("shortcut_binding", "empty_chord_confirmation");
-await bridgeContext.window.electronAPI.recordBindingDiagnostic("started");
-assert.deepEqual(bridgeCalls.slice(-2), ["record_runtime_warning", "record_binding_diagnostic"]);
+await bridgeContext.window.electronAPI.takeStartupStarReminder();
+await bridgeContext.window.electronAPI.dismissStarReminders();
+await bridgeContext.window.electronAPI.openGitHubRepository();
+assert.deepEqual(bridgeCalls.slice(-3), ["take_startup_star_reminder", "dismiss_star_reminders", "open_github_repository"]);
 
 const rejectedBridgeCalls = [];
 const rejectedBridgeContext = vm.createContext({
@@ -718,9 +632,9 @@ assert.deepEqual(
   JSON.parse(JSON.stringify(rejectedBridgeCalls)),
   [
     { command: "toggle_overlay" },
-    { command: "record_runtime_failure", argumentsObject: { operation: "toggle_overlay", code: "ipc_rejected" } },
   ],
-  "rejected native operations must record a structured code without copying raw error text",
+  "rejected native operations must preserve the original error without diagnostics IPC",
 );
 
+await import("./support-regression.mjs");
 console.log(`UI, native-window, and ${new Set(bundledIcons).size} icon regression tests passed.`);

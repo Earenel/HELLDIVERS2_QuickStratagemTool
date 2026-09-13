@@ -1,4 +1,4 @@
-use crate::{input, runtime_diagnostics};
+use crate::input;
 use serde::{Deserialize, Serialize};
 use std::{
     sync::{
@@ -910,13 +910,7 @@ fn forward_events(app: AppHandle, receiver: mpsc::Receiver<InputEvent>) {
                 LAST_RELEVANT_INPUT_AT_UNIX_MS.store(event_time, Ordering::Relaxed);
                 if edge.captured_for_binding {
                     BINDING_EVENTS_FORWARDED.fetch_add(1, Ordering::Relaxed);
-                    if emit_binding_edge(&app, edge).is_err() {
-                        runtime_diagnostics::record_error(
-                            "input",
-                            "binding_event_delivery",
-                            "event_delivery_failed",
-                        );
-                    }
+                    let _ = emit_binding_edge(&app, edge);
                     continue;
                 }
                 let routed = shortcut_state()
@@ -933,16 +927,8 @@ fn forward_events(app: AppHandle, receiver: mpsc::Receiver<InputEvent>) {
                         SHORTCUTS_MATCHED.fetch_add(1, Ordering::Relaxed);
                         LAST_SHORTCUT_MATCH_AT_UNIX_MS.store(event_time, Ordering::Relaxed);
                         NATIVE_ACTIONS_ROUTED.fetch_add(1, Ordering::Relaxed);
-                        if app
-                            .emit_to("main", "native-shortcut", NativeShortcutEvent { action })
-                            .is_err()
-                        {
-                            runtime_diagnostics::record_error(
-                                "input",
-                                "shortcut_event_delivery",
-                                "event_delivery_failed",
-                            );
-                        }
+                        let _ =
+                            app.emit_to("main", "native-shortcut", NativeShortcutEvent { action });
                     }
                     None => {
                         UNMATCHED_SHORTCUT_EDGES.fetch_add(1, Ordering::Relaxed);
@@ -966,7 +952,6 @@ fn emit_binding_edge(app: &AppHandle, edge: InputEdge) -> tauri::Result<()> {
 fn start_native_macro(app: &AppHandle, binding: NativeMacro) {
     let Ok(guard) = input::reserve() else {
         NATIVE_MACROS_SUPPRESSED.fetch_add(1, Ordering::Relaxed);
-        runtime_diagnostics::record_warning("input", "macro_start", "macro_already_running");
         return;
     };
     let started = NativeMacroEvent {
@@ -974,16 +959,7 @@ fn start_native_macro(app: &AppHandle, binding: NativeMacro) {
         duration: binding.prepared.duration_ms(),
         error: None,
     };
-    if app
-        .emit_to("main", "native-macro-started", started.clone())
-        .is_err()
-    {
-        runtime_diagnostics::record_warning(
-            "input",
-            "macro_event_delivery",
-            "event_delivery_failed",
-        );
-    }
+    let _ = app.emit_to("main", "native-macro-started", started.clone());
 
     let worker_app = app.clone();
     let prepared = binding.prepared;
@@ -996,46 +972,20 @@ fn start_native_macro(app: &AppHandle, binding: NativeMacro) {
         if let Some(error) = error.as_deref() {
             if error != "Macro was cancelled" {
                 NATIVE_MACROS_FAILED.fetch_add(1, Ordering::Relaxed);
-                runtime_diagnostics::record_error(
-                    "input",
-                    "macro_execution",
-                    macro_error_code(error),
-                );
             }
         } else {
             NATIVE_MACROS_COMPLETED.fetch_add(1, Ordering::Relaxed);
         }
-        if worker_app
-            .emit_to(
-                "main",
-                "native-macro-finished",
-                NativeMacroEvent {
-                    overlay_index,
-                    duration,
-                    error,
-                },
-            )
-            .is_err()
-        {
-            runtime_diagnostics::record_warning(
-                "input",
-                "macro_event_delivery",
-                "event_delivery_failed",
-            );
-        }
+        let _ = worker_app.emit_to(
+            "main",
+            "native-macro-finished",
+            NativeMacroEvent {
+                overlay_index,
+                duration,
+                error,
+            },
+        );
     });
-}
-
-fn macro_error_code(error: &str) -> &'static str {
-    if error.contains("privilege level") || error.contains("rejected synthetic") {
-        "windows_input_rejected"
-    } else if error.contains("cleanup also failed") {
-        "input_cleanup_failed"
-    } else if error.contains("shutting down") || error.contains("cancelled") {
-        "macro_cancelled"
-    } else {
-        "macro_execution_failed"
-    }
 }
 
 fn unix_time_millis() -> u64 {
@@ -1874,22 +1824,5 @@ mod tests {
             input::SYNTHETIC_INPUT_MARKER
         ));
         assert!(!should_ignore_mouse_event(0, input::SYNTHETIC_INPUT_MARKER));
-    }
-
-    #[test]
-    fn classifies_macro_failures_without_exporting_raw_error_text() {
-        assert_eq!(
-            macro_error_code("Windows rejected synthetic keyboard input; check privilege level"),
-            "windows_input_rejected"
-        );
-        assert_eq!(
-            macro_error_code("primary failure; input cleanup also failed: secondary"),
-            "input_cleanup_failed"
-        );
-        assert_eq!(macro_error_code("Macro was cancelled"), "macro_cancelled");
-        assert_eq!(
-            macro_error_code("some future internal failure"),
-            "macro_execution_failed"
-        );
     }
 }

@@ -157,14 +157,14 @@ The admin visual direction is restrained Apple-style utility UI: system typograp
   - Existing loadouts and presets continue resolving by ID.
 - **Validation**: Focused UI/OCR/native-filter regressions and a real Tauri/WebView2 check.
 
-### Task 3.4: Add the catalog update notification and diagnostics
+### Task 3.4: Add the catalog update notification
 
-- **Location**: `ui/index.html`, `src-tauri/src/diagnostics.rs`, `src-tauri/src/runtime_diagnostics.rs`
-- **Description**: Show a concise “stratagem catalog updated” dialog with version and item count on the next startup; report current/previous/bundled source, last success, and compact failure code in Diagnostics Center.
+- **Location**: `ui/index.html`
+- **Description**: Show a concise “stratagem catalog updated” dialog on the next startup. Diagnostics Center and its report export were subsequently removed; catalog update behavior remains unchanged.
 - **Dependencies**: Task 3.3.
 - **Acceptance Criteria**:
   - Notification is shown once per applied version.
-  - Failure is diagnostic-only and never blocks normal use.
+  - Update failure never blocks normal use; the last valid catalog remains available.
 - **Validation**: Persistence and presentation regressions plus real installed-app verification.
 
 ## Sprint 4: Production Deployment and End-to-End Acceptance

@@ -4,34 +4,7 @@
     throw new Error("Tauri runtime is unavailable");
   }
 
-  const rawInvoke = (command, argumentsObject) => tauri.core.invoke(command, argumentsObject);
-  const diagnosticCommands = new Set([
-    "record_runtime_failure",
-    "record_runtime_warning",
-    "record_binding_diagnostic"
-  ]);
-  const diagnosticFailureCode = (error) => {
-    const text = String(error || "").toLowerCase();
-    if (text.includes("timed out") || text.includes("timeout")) return "timeout";
-    if (text.includes("access") || text.includes("permission") || text.includes("privilege")) return "permission_denied";
-    if (text.includes("invalid") || text.includes("unsupported") || text.includes("malformed")) return "invalid_data";
-    if (text.includes("unavailable") || text.includes("not available")) return "unavailable";
-    if (text.includes("cancelled") || text.includes("canceled")) return "cancelled";
-    return "ipc_rejected";
-  };
-  const invoke = async (command, argumentsObject) => {
-    try {
-      return await rawInvoke(command, argumentsObject);
-    } catch (error) {
-      if (!diagnosticCommands.has(command)) {
-        void rawInvoke("record_runtime_failure", {
-          operation: command,
-          code: diagnosticFailureCode(error)
-        }).catch(() => {});
-      }
-      throw error;
-    }
-  };
+  const invoke = (command, argumentsObject) => tauri.core.invoke(command, argumentsObject);
   const subscribe = (event, callback) => tauri.event.listen(event, ({ payload }) => callback(payload));
 
   window.electronAPI = Object.freeze({
@@ -54,11 +27,6 @@
     onQuitRequested: (callback) => subscribe("quit-requested", callback),
     setGlobalInputFilter: (config, captureAll) => invoke("set_global_input_filter", { config, captureAll }),
     getInputDiagnostics: () => invoke("get_input_diagnostics"),
-    recordRuntimeFailure: (operation, code) => rawInvoke("record_runtime_failure", { operation, code }),
-    recordRuntimeWarning: (operation, code) => rawInvoke("record_runtime_warning", { operation, code }),
-    recordBindingDiagnostic: (stage) => rawInvoke("record_binding_diagnostic", { stage }),
-    collectDiagnosticsReport: () => invoke("collect_diagnostics_report"),
-    exportDiagnosticsReport: (report) => invoke("export_diagnostics_report", { report }),
     onNativeShortcut: (callback) => subscribe("native-shortcut", callback),
     onNativeMacroStarted: (callback) => subscribe("native-macro-started", callback),
     onNativeMacroFinished: (callback) => subscribe("native-macro-finished", callback),
@@ -89,10 +57,9 @@
     getLastToast: () => invoke("get_last_toast"),
     onShowToast: (callback) => subscribe("show-toast", callback),
 
-    openSponsor: () => invoke("open_sponsor"),
-    closeSponsorWindow: () => invoke("close_sponsor_window"),
-    getSponsorUrl: () => invoke("get_sponsor_url"),
-    onSponsorUrl: (callback) => subscribe("sponsor-url", callback),
+    takeStartupStarReminder: () => invoke("take_startup_star_reminder"),
+    dismissStarReminders: () => invoke("dismiss_star_reminders"),
+    openGitHubRepository: () => invoke("open_github_repository"),
 
     openOcrHelp: (language) => invoke("open_ocr_help", { language }),
     closeOcrHelpWindow: () => invoke("close_ocr_help_window"),

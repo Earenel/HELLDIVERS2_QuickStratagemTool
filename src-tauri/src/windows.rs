@@ -64,22 +64,6 @@ fn ensure_toast_window(app: &AppHandle) -> Result<WebviewWindow, String> {
     Ok(window)
 }
 
-fn ensure_sponsor_window(app: &AppHandle) -> Result<WebviewWindow, String> {
-    if let Some(window) = app.get_webview_window("sponsor") {
-        return Ok(window);
-    }
-    WebviewWindowBuilder::new(app, "sponsor", WebviewUrl::App("sponsor.html".into()))
-        .title("感谢您的赞助")
-        .inner_size(525.0, 675.0)
-        .min_inner_size(525.0, 675.0)
-        .max_inner_size(525.0, 675.0)
-        .decorations(false)
-        .resizable(false)
-        .visible(false)
-        .build()
-        .map_err(|error| error.to_string())
-}
-
 fn ensure_ocr_help_window(app: &AppHandle) -> Result<WebviewWindow, String> {
     if let Some(window) = app.get_webview_window("ocr-help") {
         return Ok(window);
@@ -252,11 +236,6 @@ pub fn emit_overlay(
             .map_err(|error| error.to_string())?;
     }
     Ok(())
-}
-
-pub fn open_sponsor(app: &AppHandle, url: String) -> Result<(), String> {
-    let window = ensure_sponsor_window(app)?;
-    show_fixed_window(app, &window, "sponsor", "sponsor-url", url)
 }
 
 pub fn open_ocr_help(app: &AppHandle, language: String) -> Result<(), String> {
