@@ -7,6 +7,7 @@ mod hooks;
 mod input;
 mod legacy;
 mod network;
+mod notices;
 mod ocr;
 mod support;
 mod tray;
@@ -27,6 +28,7 @@ use tauri::{AppHandle, Emitter, Manager, State, WindowEvent};
 
 struct AppState {
     data_dir: PathBuf,
+    first_install: bool,
     data_io: Mutex<()>,
     ocr_model_dir: PathBuf,
     migration_report: MigrationReport,
@@ -512,6 +514,61 @@ async fn open_github_repository() -> Result<(), String> {
 }
 
 #[tauri::command]
+async fn should_show_free_notice(app: AppHandle) -> Result<bool, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let result = state
+            .startup_usage
+            .lock()
+            .map_err(|_| "Usage storage is unavailable".to_owned())?
+            .should_show_free_notice(&state.data_dir, state.first_install);
+        result
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+async fn acknowledge_free_notice(app: AppHandle) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let result = state
+            .startup_usage
+            .lock()
+            .map_err(|_| "Usage storage is unavailable".to_owned())?
+            .acknowledge_free_notice(&state.data_dir);
+        result
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+async fn load_cached_free_notice(app: AppHandle) -> Result<Option<notices::NoticeContent>, String> {
+    let data_dir = app.state::<AppState>().data_dir.clone();
+    tauri::async_runtime::spawn_blocking(move || notices::load_cached(&data_dir))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+async fn check_free_notice_updates(
+    app: AppHandle,
+) -> Result<Option<notices::NoticeContent>, String> {
+    let data_dir = app.state::<AppState>().data_dir.clone();
+    tauri::async_runtime::spawn_blocking(move || notices::check_for_update(&data_dir))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+async fn open_bilibili_page() -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(updates::open_bilibili_page)
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
 async fn open_ocr_help(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -795,8 +852,13 @@ fn main() {
             let ocr_model_dir = resolve_ocr_model_dir(app.handle());
             let migration_report =
                 config::initialize_data_directory(&data_dir).map_err(std::io::Error::other)?;
+            let first_install = !config::LEGACY_FILES
+                .iter()
+                .any(|name| data_dir.join(name).exists())
+                && !data_dir.join("support-state.json").exists();
             app.manage(AppState {
                 data_dir,
+                first_install,
                 data_io: Mutex::new(()),
                 ocr_model_dir,
                 migration_report,
@@ -850,6 +912,11 @@ fn main() {
             take_startup_star_reminder,
             dismiss_star_reminders,
             open_github_repository,
+            should_show_free_notice,
+            acknowledge_free_notice,
+            load_cached_free_notice,
+            check_free_notice_updates,
+            open_bilibili_page,
             open_ocr_help,
             close_ocr_help_window,
             get_ocr_help_language,

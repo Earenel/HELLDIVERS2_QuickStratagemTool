@@ -39,7 +39,7 @@ async function syncDirectory(directory) {
   }
 }
 
-async function atomicWrite(filename, bytes, mode = 0o640) {
+export async function atomicWrite(filename, bytes, mode = 0o640) {
   const pending = `${filename}.pending`;
   const handle = await open(pending, "w", mode);
   try {

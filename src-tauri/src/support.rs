@@ -10,6 +10,7 @@ const MAX_STATE_BYTES: u64 = 4096;
 struct UsageState {
     launch_count: u32,
     star_reminder_dismissed: bool,
+    free_notice_acknowledged: Option<bool>,
 }
 
 #[derive(Default)]
@@ -19,6 +20,35 @@ pub struct StartupUsage {
 }
 
 impl StartupUsage {
+    pub fn should_show_free_notice(
+        &mut self,
+        data_dir: &Path,
+        first_install: bool,
+    ) -> Result<bool, String> {
+        let mut state = self
+            .state
+            .clone()
+            .map_or_else(|| load_state(data_dir), Ok)?;
+        if state.free_notice_acknowledged.is_none() {
+            state.free_notice_acknowledged = Some(!first_install);
+            save_state(data_dir, &state)?;
+        }
+        let show = state.free_notice_acknowledged == Some(false);
+        self.state = Some(state);
+        Ok(show)
+    }
+
+    pub fn acknowledge_free_notice(&mut self, data_dir: &Path) -> Result<(), String> {
+        let mut state = self
+            .state
+            .clone()
+            .map_or_else(|| load_state(data_dir), Ok)?;
+        state.free_notice_acknowledged = Some(true);
+        save_state(data_dir, &state)?;
+        self.state = Some(state);
+        Ok(())
+    }
+
     /// The process owns this state: a renderer reload or a second IPC call
     /// cannot count another launch or show the same reminder twice.
     pub fn take_reminder(&mut self, data_dir: &Path) -> Result<Option<u32>, String> {
@@ -121,6 +151,51 @@ mod tests {
     }
 
     #[test]
+    fn free_notice_only_prompts_new_installs_and_acknowledgement_survives_restarts() {
+        let fresh = TestDirectory::new();
+        let mut usage = StartupUsage::default();
+        assert!(usage.should_show_free_notice(&fresh.0, true).unwrap());
+        // Until acknowledged, a restart must still show the pending first-run notice.
+        let mut usage = StartupUsage::default();
+        assert!(usage.should_show_free_notice(&fresh.0, false).unwrap());
+        usage.acknowledge_free_notice(&fresh.0).unwrap();
+        usage.take_reminder(&fresh.0).unwrap();
+        assert!(!StartupUsage::default()
+            .should_show_free_notice(&fresh.0, false)
+            .unwrap());
+        config::save_json(
+            &fresh.0,
+            "settings.json",
+            &serde_json::json!({"language":"en"}),
+        )
+        .unwrap();
+        assert!(!StartupUsage::default()
+            .should_show_free_notice(&fresh.0, true)
+            .unwrap());
+        let existing = TestDirectory::new();
+        assert!(!StartupUsage::default()
+            .should_show_free_notice(&existing.0, false)
+            .unwrap());
+    }
+
+    #[test]
+    fn free_notice_does_not_acknowledge_a_failed_save() {
+        let dir = TestDirectory::new();
+        let mut usage = StartupUsage::default();
+        assert!(usage.should_show_free_notice(&dir.0, true).unwrap());
+        let pending = dir.0.join(STATE_FILE).with_extension("json.pending");
+        fs::create_dir(&pending).unwrap();
+        assert!(usage.acknowledge_free_notice(&dir.0).is_err());
+        assert_eq!(
+            load_state(&dir.0).unwrap().free_notice_acknowledged,
+            Some(false)
+        );
+        fs::remove_dir(pending).unwrap();
+        usage.acknowledge_free_notice(&dir.0).unwrap();
+        assert!(!usage.should_show_free_notice(&dir.0, false).unwrap());
+    }
+
+    #[test]
     fn reminds_only_on_milestones_and_counts_once_per_process() {
         let dir = TestDirectory::new();
         let mut reminders = Vec::new();
@@ -167,6 +242,7 @@ mod tests {
         let state = UsageState {
             launch_count: 49,
             star_reminder_dismissed: true,
+            ..UsageState::default()
         };
         save_state(&dir.0, &state).unwrap();
         save_state(&dir.0, &state).unwrap();

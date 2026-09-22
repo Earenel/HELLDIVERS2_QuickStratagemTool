@@ -60,6 +60,11 @@
     takeStartupStarReminder: () => invoke("take_startup_star_reminder"),
     dismissStarReminders: () => invoke("dismiss_star_reminders"),
     openGitHubRepository: () => invoke("open_github_repository"),
+    shouldShowFreeNotice: () => invoke("should_show_free_notice"),
+    acknowledgeFreeNotice: () => invoke("acknowledge_free_notice"),
+    loadCachedFreeNotice: () => invoke("load_cached_free_notice"),
+    checkFreeNoticeUpdates: () => invoke("check_free_notice_updates"),
+    openBilibiliPage: () => invoke("open_bilibili_page"),
 
     openOcrHelp: (language) => invoke("open_ocr_help", { language }),
     closeOcrHelpWindow: () => invoke("close_ocr_help_window"),
