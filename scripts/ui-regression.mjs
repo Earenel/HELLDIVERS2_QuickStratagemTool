@@ -637,4 +637,6 @@ assert.deepEqual(
 );
 
 await import("./support-regression.mjs");
+await import("./library-favorites-regression.mjs");
+await import("./free-notice-regression.mjs");
 console.log(`UI, native-window, and ${new Set(bundledIcons).size} icon regression tests passed.`);

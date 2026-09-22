@@ -209,6 +209,9 @@
         .modal-title::before { content: ''; display: block; width: 4px; height: 18px; background: var(--hd-yellow); border-radius: 2px; }
         .modal-header .btn-square { flex-grow: 0; padding: 8px 24px; font-size: 13px; border-radius: 20px; } 
 
+        #library-modal .modal-header { gap: 16px; flex-wrap: wrap; flex-shrink: 0; }
+        .lib-heading { flex: 1; min-width: 260px; }
+        .lib-favorite-hint { margin-top: 8px; color: var(--hd-text-secondary); font-size: 12px; line-height: 1.5; }
         .lib-search-container { padding: 20px 24px 0 24px; }
         #lib-search-input {
             width: 100%; background: rgba(0,0,0,0.4); border: 1px solid var(--glass-border); border-radius: var(--radius-md);
@@ -230,7 +233,22 @@
         .lib-name { flex-grow: 1; font-size: 13px; font-weight: 600; line-height: 1.2; }
         .lib-check { color: var(--hd-yellow); font-size: 16px; font-weight: bold; display: none; margin-right: 5px; }
         .lib-card.selected .lib-check { display: block; animation: popIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
+        .lib-favorite-star { color: var(--hd-yellow); font-size: 18px; }
+        .lib-delete { flex-shrink: 0; width: 26px; height: 26px; padding: 0; border: 1px solid var(--glass-border); border-radius: var(--radius-sm); background: transparent; color: var(--hd-text-secondary); font-size: 18px; cursor: pointer; }
+        .lib-delete:hover, .lib-delete:focus-visible { color: #ff6b6b; border-color: #ff6b6b; }
 
+        #free-notice-modal { z-index: 92; }
+        #free-notice-first-modal { z-index: 93; justify-content: center; align-items: center; }
+        #free-notice-modal .modal-header { flex-shrink: 0; }
+        .free-notice-content { padding: 20px 24px 32px; overflow-y: auto; line-height: 1.8; }
+        .free-notice-statement { margin: 0 0 28px; font-size: 15px; }
+        .free-notice-statement a { color: var(--hd-yellow); overflow-wrap: anywhere; }
+        .free-notice-content h2 { font-size: 18px; margin: 0 0 16px; }
+        #free-notice-items figure { margin: 0 0 24px; }
+        #free-notice-items figcaption { margin-bottom: 12px; font-size: 15px; font-weight: 700; }
+        #free-notice-items img { width: 100%; height: auto; display: block; border-radius: 10px; }
+        #free-notice-error, #free-notice-first-error { color: #ff6b6b; font-size: 13px; }
+        #free-notice-first-error { padding: 0 24px; }
         @keyframes popIn { 0% { transform: scale(0); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
 
         .settings-content { padding: 24px; display: flex; flex-direction: column; gap: 20px; overflow-y: auto; max-width: 800px; margin: 0 auto; width: 100%;}
@@ -343,6 +361,7 @@
         <div class="title-text" id="txt-app-title">HD2 MACRO TERMINAL</div>
         <div class="titlebar-controls" data-tauri-drag-region="false">
             <button class="lang-btn" id="btn-title-sponsor" onclick="openSponsorModal()">赞助</button>
+            <button class="lang-btn" id="btn-title-notice" onclick="freeSoftwareNotice.open()">必读声明</button>
             <button class="lang-btn" id="btn-lang" onclick="toggleLanguage()">EN / 中文</button>
             <button class="window-btn" onclick="handleWindowAction('tray')"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg></button>
             <button class="window-btn" onclick="handleWindowAction('minimize')"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
@@ -363,7 +382,10 @@
     <!-- Modals -->
     <div id="library-modal" class="modal-overlay">
         <div class="modal-header">
-            <div class="modal-title" id="txt-lib-title">STRATAGEM LIBRARY</div>
+            <div class="lib-heading">
+                <div class="modal-title" id="txt-lib-title">STRATAGEM LIBRARY</div>
+                <div class="lib-favorite-hint" id="txt-lib-favorite-hint"></div>
+            </div>
             <div style="display: flex; gap: 12px;">
                 <button class="btn-square primary" id="btn-lib-add" onclick="openAddStratModal()">+ ADD CUSTOM</button>
                 <button class="btn-square" id="btn-lib-done" onclick="closeModals()">DONE</button>
@@ -778,11 +800,32 @@
             </div>
             
             <button class="btn-square primary" id="btn-add-save" style="margin-top: 10px; width: 100%; height: 50px; font-size: 15px;" onclick="saveCustomStratagem()">SAVE / 保存并添加</button>
-            <div class="hint-text" id="txt-add-hint">提示：在战备库中，对自定义战备点击右键即可将其删除。</div>
+            <div class="hint-text" id="txt-add-hint">提示：点击自定义战备卡片上的 × 按钮可将其删除。</div>
         </div>
     </div>
 
+    <div id="free-notice-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="free-notice-title">
+        <div class="modal-header">
+            <div class="modal-title" id="free-notice-title"></div>
+            <button class="btn-square" id="free-notice-close" type="button"></button>
+        </div>
+        <div class="free-notice-content">
+            <p class="free-notice-statement" id="free-notice-statement"></p>
+            <h2 id="free-notice-sellers-title"></h2>
+            <div id="free-notice-items"></div>
+            <p id="free-notice-error" role="status"></p>
+        </div>
+    </div>
+    <div id="free-notice-first-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="free-notice-first-title">
+        <div class="confirm-box" style="width: 480px; max-width: calc(100% - 32px);">
+            <div class="confirm-header update-header" id="free-notice-first-title"></div>
+            <div class="confirm-body" id="free-notice-first-text"></div>
+            <div class="confirm-footer"><button class="btn-square primary" id="free-notice-ack" type="button"></button></div>
+            <p id="free-notice-first-error" role="status"></p>
+        </div>
+    </div>
     <script src="./bridge.js"></script>
+    <script src="./free-notice.js"></script>
     <script>
         let currentLang = 'zh';
 
@@ -800,6 +843,8 @@
                 emptySlot: "空置槽位 (点击前往战备库添加)", clickToBind: "点击绑定", waiting: "等待输入...",
                 unboundSub: "未绑定触发键", bindSub: "按下组合键，回车确认 (ESC取消)", boundSub: "右键点击清除绑定",
                 libTitle: "战备配置档案库", btnDone: "完成", dragHint: "按住拖动排序 (不改变键位)",
+                libFavoriteHint: "右键收藏 / 取消收藏，收藏的战备会置顶显示在“最爱”分类。",
+                cat_favorites: "最爱", libSearchResults: "搜索结果", favoriteAdd: "右键收藏", favoriteRemove: "右键取消收藏", favoriteAdded: "已加入最爱", favoriteRemoved: "已取消收藏",
                 searchPh: "搜索战备名称或外号...", searchHint: "你要找的是不是：",
                 setLoadout: "战备栏位", slotCount: "栏位槽数量", setMenu: "战备菜单控制", setMenuKey: "呼出战备栏按键", setMenuMode: "呼出模式", modeHold: "按住", modeToggle: "切换", directionOnly: "仅输入方向", directionOnlyOn: "开启", directionOnlyOff: "关闭",
                 setArrows: "战备指令输入键位", up: "上", down: "下", left: "左", right: "右", saveClose: "保存并关闭",
@@ -825,7 +870,7 @@
                 // 自定义
                 addTitle: "添加自定义战备", addCat: "战备分类", addIcon: "战备图标", uploadBtn: "选择文件", nameZh: "中文名称", nameEn: "英文名称",
                 addSeq: "指令序列 (输入W A S D)", addOcr: "OCR 匹配字段", addSave: "保存并添加", msgInvalidSeq: "序列只能包含W A S D", msgFillAll: "请填写名称、分类和指令序列", msgCustomSaved: "自定义战备已添加！",
-                addHint: "提示：在战备库中，对自定义战备点击右键即可将其删除。", msgConfirmDelCustom: "警告：确定要删除该自定义战备吗？",
+                addHint: "提示：点击自定义战备卡片上的 × 按钮可将其删除。", msgConfirmDelCustom: "警告：确定要删除该自定义战备吗？",
                 addNameZhPh: "输入中文名称", addNameEnPh: "输入英文名称", addSeqPh: "例如:WDSSS", addOcrPh: "例如: C4背包, C4 Pack, B/MD C4 背包",
                 
                 // 悬浮窗
@@ -872,6 +917,8 @@
                 emptySlot: "EMPTY SLOT (CLICK TO ADD)", clickToBind: "CLICK TO BIND", waiting: "WAITING...",
                 unboundSub: "NO HOTKEY BOUND", bindSub: "PRESS CHORD, ENTER TO CONFIRM (ESC CANCEL)", boundSub: "RIGHT CLICK TO CLEAR",
                 libTitle: "STRATAGEM LIBRARY", btnDone: "DONE", dragHint: "Hold and drag to reorder",
+                libFavoriteHint: "Right-click to favorite or unfavorite. Favorites are pinned to the top of the library.",
+                cat_favorites: "FAVORITES", libSearchResults: "SEARCH RESULTS", favoriteAdd: "Right-click to favorite", favoriteRemove: "Right-click to unfavorite", favoriteAdded: "Added to favorites", favoriteRemoved: "Removed from favorites",
                 searchPh: "Search by name...", searchHint: "Did you mean:",
                 setLoadout: "STRATAGEM LOADOUT", slotCount: "LOADOUT SLOTS", setMenu: "STRATAGEM MENU CONTROL", setMenuKey: "MENU KEY", setMenuMode: "TRIGGER MODE (HOLD / TOGGLE)", modeHold: "HOLD", modeToggle: "TOGGLE", directionOnly: "DIRECTION INPUT ONLY", directionOnlyOn: "ON", directionOnlyOff: "OFF",
                 setArrows: "STRATAGEM INPUT KEYS", up: "UP", down: "DOWN", left: "LEFT", right: "RIGHT", saveClose: "SAVE & CLOSE",
@@ -897,7 +944,7 @@
                 // 自定义战备
                 addTitle: "ADD CUSTOM STRATAGEM", addCat: "CATEGORY", addIcon: "ICON (.svg)", uploadBtn: "CHOOSE FILE", nameZh: "NAME (ZH)", nameEn: "NAME (EN)",
                 addSeq: "SEQUENCE (USE W A S D)", addOcr: "OCR MATCH TERMS", addSave: "SAVE & ADD", msgInvalidSeq: "Sequence must only contain W, A, S, D", msgFillAll: "Please fill names, category and sequence", msgCustomSaved: "Custom stratagem added!",
-                addHint: "Hint: Right-click a custom stratagem in the Library to delete it.", msgConfirmDelCustom: "WARNING: Delete this custom stratagem?",
+                addHint: "Hint: Click the × button on a custom stratagem card to delete it.", msgConfirmDelCustom: "WARNING: Delete this custom stratagem?",
                 addNameZhPh: "Enter Chinese name", addNameEnPh: "Enter English name", addSeqPh: "e.g. W A S D", addOcrPh: "e.g. C4背包, C4 Pack, B/MD C4 Backpack",
                 
                 // 悬浮窗
@@ -1086,6 +1133,7 @@
             ocrHotkey: 'F8', ocrRegion: null, ocrRegionCoordinateSpace: null, ocrDisplayId: null, showToasts: true,
             slotCount: DEFAULT_SLOT_COUNT,
             catalogNoticeVersion: 1,
+            favoriteStratagemIds: [],
             overlayPosition: null
         };
 
@@ -1701,6 +1749,9 @@
                     cacheSet.menuOpenDelay = 100;
                 }
                 gameSettings = { ...gameSettings, ...cacheSet };
+                const favoriteIds = normalizeFavoriteStratagemIds(gameSettings.favoriteStratagemIds);
+                if (JSON.stringify(favoriteIds) !== JSON.stringify(gameSettings.favoriteStratagemIds)) settingsChanged = true;
+                gameSettings.favoriteStratagemIds = favoriteIds;
                 const noticeVersion = Number(gameSettings.catalogNoticeVersion);
                 gameSettings.catalogNoticeVersion = Number.isSafeInteger(noticeVersion) && noticeVersion >= 1 ? noticeVersion : 1;
                 const normalizedDirectionOnly = gameSettings.directionOnly === true;
@@ -1806,6 +1857,7 @@
             if (remoteCatalogVersion > gameSettings.catalogNoticeVersion) {
                 showCatalogUpdateModal(remoteCatalogVersion);
             }
+            if (window.freeSoftwareNotice) await window.freeSoftwareNotice.initialize(currentLang);
             void prepareStartupStarReminder();
             if (gameSettings.autoOpenOverlay === true) {
                 await window.handleToggleOverlay();
@@ -1871,6 +1923,7 @@
 
         function updateI18n() {
             const lang = i18n[currentLang];
+            window.freeSoftwareNotice?.setLanguage(currentLang);
             document.getElementById('btn-top-overlay').textContent = lang.btnOverlay;
             document.getElementById('txt-app-title').textContent = lang.appTitle;
             document.getElementById('btn-top-settings').textContent = lang.btnSettings;
@@ -1878,6 +1931,7 @@
             document.getElementById('btn-title-sponsor').textContent = lang.btnSponsor;
             document.getElementById('btn-top-lib').textContent = lang.btnOpenLib;
             document.getElementById('txt-lib-title').textContent = lang.libTitle;
+            document.getElementById('txt-lib-favorite-hint').textContent = lang.libFavoriteHint;
             document.getElementById('btn-lib-done').textContent = lang.btnDone;
             document.getElementById('txt-set-title').textContent = lang.btnSettings;
             document.getElementById('btn-set-done').textContent = lang.saveClose;
@@ -2329,27 +2383,53 @@
             renderLibrary(keyword);
         }
 
+        function normalizeFavoriteStratagemIds(value) {
+            if (!Array.isArray(value)) return [];
+            return [...new Set(value.filter(id => typeof id === 'string' && /^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$/.test(id)))];
+        }
+
+        function toggleFavoriteStratagem(id) {
+            if (!stratagemDB.some(strat => strat.id === id && strat.enabled !== false)) return;
+            const favorites = new Set(gameSettings.favoriteStratagemIds);
+            const wasFavorite = favorites.delete(id);
+            if (!wasFavorite) favorites.add(id);
+            gameSettings.favoriteStratagemIds = [...favorites];
+            saveDataToLocal('settings.json', gameSettings, 'hd2_macro_settings');
+            renderLibrary(document.getElementById('lib-search-input').value);
+            if (!wasFavorite) document.getElementById('lib-content').scrollTop = 0;
+            showToast(i18n[currentLang][wasFavorite ? 'favoriteRemoved' : 'favoriteAdded']);
+        }
+
+        function appendLibraryGroup(container, title, items) {
+            if (items.length === 0) return;
+            if (title) {
+                const header = document.createElement('div');
+                header.className = 'lib-cat-header';
+                header.textContent = title;
+                container.appendChild(header);
+            }
+            const grid = document.createElement('div');
+            grid.className = 'lib-grid';
+            items.forEach(strat => grid.appendChild(createStratCard(strat)));
+            container.appendChild(grid);
+        }
+
         function renderLibrary(keyword = '') {
             const container = document.getElementById('lib-content');
             container.innerHTML = '';
             
             keyword = keyword.trim().toLowerCase();
             const lang = i18n[currentLang];
+            const favorites = new Set(gameSettings.favoriteStratagemIds);
             let hasAliasMatch = false;
 
             if (!keyword) {
                 document.getElementById('lib-search-hint').style.display = 'none';
+                appendLibraryGroup(container, lang.cat_favorites, stratagemDB.filter(s => s.enabled !== false && favorites.has(s.id)));
                 const groups =['support', 'orbital', 'eagle', 'emplacement', 'sentry', 'backpack', 'vehicle', 'mission'];
                 groups.forEach(grp => {
                     const items = stratagemDB.filter(s => s.enabled !== false && s.grp === grp);
-                    if(items.length === 0) return;
-                    const header = document.createElement('div'); header.className = 'lib-cat-header'; header.textContent = lang[`cat_${grp}`];
-                    container.appendChild(header);
-                    const grid = document.createElement('div'); grid.className = 'lib-grid';
-                    items.forEach(strat => {
-                        grid.appendChild(createStratCard(strat));
-                    });
-                    container.appendChild(grid);
+                    appendLibraryGroup(container, lang[`cat_${grp}`], items);
                 });
             } else {
                 const matchedStrats = stratagemDB.filter(strat => {
@@ -2372,11 +2452,9 @@
                 }
 
                 if(matchedStrats.length > 0) {
-                    const grid = document.createElement('div'); grid.className = 'lib-grid';
-                    matchedStrats.forEach(strat => {
-                        grid.appendChild(createStratCard(strat));
-                    });
-                    container.appendChild(grid);
+                    const favoriteMatches = matchedStrats.filter(s => favorites.has(s.id));
+                    appendLibraryGroup(container, lang.cat_favorites, favoriteMatches);
+                    appendLibraryGroup(container, favoriteMatches.length ? lang.libSearchResults : '', matchedStrats.filter(s => !favorites.has(s.id)));
                 } else {
                     container.innerHTML = `<div style="text-align:center; color: var(--hd-text-secondary); padding: 40px; font-weight: 500;">未找到相关战备 / NO STRATAGEM FOUND</div>`;
                 }
@@ -2386,13 +2464,28 @@
         function createStratCard(strat) {
             const isSelected = activeLoadout.some(s => s.strat && s.strat.id === strat.id);
             const isCustom = strat.id.startsWith('custom_');
+            const isFavorite = gameSettings.favoriteStratagemIds.includes(strat.id);
+            const lang = i18n[currentLang];
             const card = document.createElement('div');
             card.className = `lib-card ${isSelected ? 'selected' : ''}`;
+            card.title = isFavorite ? lang.favoriteRemove : lang.favoriteAdd;
             card.onclick = () => { toggleStratagem(strat.id); };
-            card.oncontextmenu = (e) => { e.preventDefault(); if (isCustom) confirmDeleteCustom(strat.id); };
+            card.oncontextmenu = (e) => { e.preventDefault(); toggleFavoriteStratagem(strat.id); };
             const iconSrc = escapeHtml(safeImageSource(strat.icon));
             const displayName = escapeHtml(strat.name && strat.name[currentLang]);
-            card.innerHTML = `<img class="lib-icon" src="${iconSrc}"><div class="lib-name">${displayName}</div><div class="lib-check">✓</div>`;
+            const favoriteStar = isFavorite ? `<span class="lib-favorite-star" role="img" aria-label="${escapeHtml(lang.cat_favorites)}">★</span>` : '';
+            card.innerHTML = `<img class="lib-icon" src="${iconSrc}"><div class="lib-name">${displayName}</div>${favoriteStar}<div class="lib-check">✓</div>`;
+            if (isCustom) {
+                const deleteButton = document.createElement('button');
+                deleteButton.type = 'button';
+                deleteButton.className = 'lib-delete';
+                deleteButton.textContent = '×';
+                deleteButton.title = lang.btnDel;
+                deleteButton.setAttribute('aria-label', `${lang.btnDel}: ${strat.name[currentLang]}`);
+                deleteButton.onclick = (event) => { event.stopPropagation(); confirmDeleteCustom(strat.id); };
+                deleteButton.oncontextmenu = (event) => { event.preventDefault(); event.stopPropagation(); };
+                card.appendChild(deleteButton);
+            }
             return card;
         }
 
@@ -3282,6 +3375,10 @@
                 const idToRemove = pendingDelete.payload;
                 customStratagems = customStratagems.filter(s => s.id !== idToRemove); 
                 saveDataToLocal('custom_strats.json', customStratagems, 'hd2_custom_stratagems');
+                if (gameSettings.favoriteStratagemIds.includes(idToRemove)) {
+                    gameSettings.favoriteStratagemIds = gameSettings.favoriteStratagemIds.filter(id => id !== idToRemove);
+                    saveDataToLocal('settings.json', gameSettings, 'hd2_macro_settings');
+                }
                 
                 rebuildStratagemDatabase();
                 activeLoadout = activeLoadout.map(item => {

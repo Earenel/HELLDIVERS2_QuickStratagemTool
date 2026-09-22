@@ -5,6 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { CatalogStore } from "../lib/store.mjs";
+import { NoticeStore } from "../lib/notices.mjs";
 import { createCatalogServer, validateBundledIcons } from "../server.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -18,8 +19,11 @@ async function fixture(t) {
     publicKeyPath: path.join(directory, "keys", "public.pem"),
   });
   await store.initialize();
+  const noticeStore = new NoticeStore({ dataRoot: path.join(directory, 'notices'), privateKey: store.privateKey, publicKey: store.publicKey, seedImagePath: path.join(root, 'data/resale-listing.jpg') });
+  await noticeStore.initialize();
   const server = createCatalogServer({
     store,
+    noticeStore,
     access: { authenticate: async () => ({ email: "owner@example.com" }) },
     bundledIconRoot: path.join(root, "bundled-icons"),
     publicOrigin: "https://update.example.test",
@@ -30,7 +34,7 @@ async function fixture(t) {
     await new Promise((resolve) => server.close(resolve));
     await rm(directory, { recursive: true, force: true });
   });
-  return { base: `http://127.0.0.1:${address.port}`, store };
+  return { base: `http://127.0.0.1:${address.port}`, store, noticeStore };
 }
 
 test("public manifest and immutable catalog are available", async (t) => {
@@ -43,6 +47,35 @@ test("public manifest and immutable catalog are available", async (t) => {
   const catalogResponse = await fetch(`${base}${manifest.catalogPath}`);
   assert.equal((await catalogResponse.json()).items.length, 101);
   assert.match(catalogResponse.headers.get("cache-control"), /immutable/);
+});
+
+test("notice images publish independently with CSRF, signature, and conflict checks", async (t) => {
+  const { base, store, noticeStore } = await fixture(t);
+  const { verify } = await import('node:crypto');
+  const initial = await (await fetch(`${base}/admin/api/notices`)).json();
+  assert.equal(initial.content.items[0].caption, '闲鱼-影子sam-通过倒卖牟利');
+  const manifest = await (await fetch(`${base}/api/v1/notices/manifest`)).json();
+  const bytes = Buffer.from(await (await fetch(`${base}${manifest.contentPath}`)).arrayBuffer());
+  assert.ok(verify(null, bytes, store.publicKey, Buffer.from(manifest.signature, 'base64')));
+  assert.equal((await fetch(`${base}/api/v1/notices/content/999`)).status, 404);
+  const body = JSON.stringify({ baseVersion: 1, items: initial.content.items });
+  assert.equal((await fetch(`${base}/admin/api/notices`, { method:'PUT', headers:{'content-type':'application/json'}, body })).status, 403);
+  const headers = {'content-type':'application/json', 'x-hd2-admin':'1', origin:'https://update.example.test'};
+  const uploaded = await fetch(`${base}/admin/api/notices/image`, {method:'POST', headers, body:JSON.stringify(initial.content.items[0].image)});
+  assert.equal(uploaded.status, 200);
+  const image = (await uploaded.json()).image;
+  assert.equal(image.mediaType, 'image/jpeg');
+  const items = [...initial.content.items, {id:'another-listing', caption:'<script>literal caption</script>', image}];
+  const update = await fetch(`${base}/admin/api/notices`, {method:'PUT', headers, body:JSON.stringify({baseVersion:1,items})});
+  assert.equal(update.status, 200);
+  assert.equal((await update.json()).manifest.noticeVersion, 2);
+  assert.equal((await store.currentManifest()).catalogVersion, 1, 'notice updates must never publish a stratagem version');
+  assert.equal((await fetch(`${base}/admin/api/notices`, {method:'PUT',headers,body})).status, 409);
+  assert.equal((await fetch(`${base}/admin/api/notices/image`, {method:'POST',headers,body:JSON.stringify({mediaType:'image/svg+xml',base64:'PHN2Zy8+'})})).status, 400);
+  assert.equal((await fetch(`${base}/admin/api/notices/image`, {method:'POST',headers,body:JSON.stringify({mediaType:'image/jpeg',base64:'/9j/'})})).status, 400);
+  assert.equal((await fetch(`${base}/admin/api/notices`, {method:'PUT',headers,body:JSON.stringify({baseVersion:2,items:[]})})).status, 200);
+  assert.equal((await noticeStore.current()).content.items.length, 0);
+  assert.equal((await (await fetch(`${base}${manifest.contentPath}`)).json()).items.length, 1, 'old content versions stay immutable');
 });
 
 test("admin publishes with CSRF checks and optimistic concurrency", async (t) => {

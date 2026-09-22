@@ -45,6 +45,10 @@ pub fn open_repository_page() -> Result<(), String> {
     open_github_page("https://github.com/Ooxygen7/HELLDIVERS2_QuickStratagemTool")
 }
 
+pub fn open_bilibili_page() -> Result<(), String> {
+    open_github_page("https://space.bilibili.com/86682017")
+}
+
 fn open_github_page(url: &str) -> Result<(), String> {
     let url = wide_null(url);
     // SAFETY: all strings are valid, nul-terminated UTF-16 buffers that remain

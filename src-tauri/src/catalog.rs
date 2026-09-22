@@ -159,7 +159,7 @@ pub fn check_for_update(data_dir: &Path) -> Result<Option<CatalogPayload>, Strin
     Ok(Some(payload))
 }
 
-fn production_key() -> Result<VerifyingKey, String> {
+pub(crate) fn production_key() -> Result<VerifyingKey, String> {
     let bytes = general_purpose::URL_SAFE_NO_PAD
         .decode(PUBLIC_KEY_BASE64URL)
         .map_err(|error| format!("Embedded catalog key is invalid: {error}"))?;

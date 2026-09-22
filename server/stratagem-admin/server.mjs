@@ -6,6 +6,7 @@ import { AccessVerifier } from "./lib/access.mjs";
 import { BUNDLED_ICON_PATTERN, LIMITS } from "./lib/constants.mjs";
 import { normalizeUploadedIcon } from "./lib/icons.mjs";
 import { CatalogStore } from "./lib/store.mjs";
+import { NoticeStore, normalizeNoticeImage } from "./lib/notices.mjs";
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 const publicRoot = path.join(root, "public");
@@ -146,7 +147,7 @@ export async function validateBundledIcons(store, bundledIconRoot) {
   return filenames.length;
 }
 
-export function createCatalogServer({ store, access, bundledIconRoot, publicOrigin, adminDisabled = false }) {
+export function createCatalogServer({ store, noticeStore, access, bundledIconRoot, publicOrigin, adminDisabled = false }) {
   const resolvedIcons = path.resolve(bundledIconRoot);
   return createServer(async (request, response) => {
     const requestUrl = new URL(request.url, publicOrigin);
@@ -154,6 +155,22 @@ export function createCatalogServer({ store, access, bundledIconRoot, publicOrig
     try {
       if (request.method === "GET" && pathname === "/health") {
         return json(response, 200, { status: "ok", service: "hd2-stratagem-catalog" });
+      }
+      if (!noticeStore && pathname.startsWith("/api/v1/notices/")) return json(response, 503, { error: "notices_unavailable" });
+      if (noticeStore && request.method === "GET" && pathname === "/api/v1/notices/manifest") {
+        return json(response, 200, await noticeStore.currentManifest(), "public, max-age=60, stale-if-error=86400");
+      }
+      const noticeMatch = pathname.match(/^\/api\/v1\/notices\/content\/(\d{1,10})$/);
+      if (noticeStore && request.method === "GET" && noticeMatch) {
+        try {
+          const { bytes } = await noticeStore.version(Number(noticeMatch[1]));
+          securityHeaders(response, "public, max-age=31536000, immutable");
+          response.setHeader("Content-Type", "application/json; charset=utf-8");
+          return response.end(bytes);
+        } catch (error) {
+          if (isMissingFile(error)) return json(response, 404, { error: "not_found" });
+          throw error;
+        }
       }
       if (request.method === "GET" && pathname === "/api/v1/stratagems/manifest") {
         const manifest = await store.currentManifest();
@@ -181,6 +198,21 @@ export function createCatalogServer({ store, access, bundledIconRoot, publicOrig
       if (request.method === "GET" && pathname === "/admin/api/session") {
         const manifest = await store.currentManifest();
         return json(response, 200, { user: identity.email, catalogVersion: manifest.catalogVersion });
+      }
+      if (!noticeStore && pathname.startsWith("/admin/api/notices")) return json(response, 503, { error: "notices_unavailable" });
+      if (noticeStore && request.method === "GET" && pathname === "/admin/api/notices") {
+        const { manifest, content } = await noticeStore.current();
+        return json(response, 200, { manifest, content });
+      }
+      if (noticeStore && request.method === "POST" && pathname === "/admin/api/notices/image") {
+        requireMutationHeaders(request, publicOrigin);
+        const image = await normalizeNoticeImage(await readJsonBody(request, 7 * 1024 * 1024));
+        return json(response, 200, { image });
+      }
+      if (noticeStore && request.method === "PUT" && pathname === "/admin/api/notices") {
+        requireMutationHeaders(request, publicOrigin);
+        const body = await readJsonBody(request);
+        return json(response, 200, await noticeStore.publish({ baseVersion: body.baseVersion, items: body.items, actor: identity.email }));
       }
       if (request.method === "GET" && pathname === "/admin/api/catalog") {
         const { manifest, catalog } = await store.current();
@@ -237,7 +269,7 @@ export function createCatalogServer({ store, access, bundledIconRoot, publicOrig
       let asset = pathname === "/admin" || pathname === "/admin/"
         ? "index.html"
         : pathname.slice("/admin/".length);
-      if (!/^(?:index\.html|styles\.css|app\.js)$/.test(asset)) {
+      if (!/^(?:index\.html|styles\.css|app\.js|notices\.js)$/.test(asset)) {
         return json(response, 404, { error: "not_found" });
       }
       try {
@@ -269,6 +301,14 @@ async function main() {
     publicKeyPath: path.join(keyRoot, "catalog-signing-public.pem"),
   });
   await store.initialize();
+  let noticeStore = new NoticeStore({ dataRoot: path.join(dataRoot, "notices"), privateKey: store.privateKey, publicKey: store.publicKey, seedImagePath: path.join(root, "data", "resale-listing.jpg") });
+  try {
+    await noticeStore.initialize();
+  } catch (error) {
+    // Optional notice storage must not take the stratagem service offline.
+    console.error("Notice content unavailable:", error);
+    noticeStore = null;
+  }
   const bundledIconCount = await validateBundledIcons(store, bundledIconRoot);
   const access = new AccessVerifier({
     teamDomain: process.env.CF_ACCESS_TEAM_DOMAIN,
@@ -279,7 +319,7 @@ async function main() {
   if (!adminDisabled && !access.configured() && !access.devBypass) {
     throw new Error("Cloudflare Access requires a team domain, audience and exactly one allowed email");
   }
-  const server = createCatalogServer({ store, access, bundledIconRoot, publicOrigin, adminDisabled });
+  const server = createCatalogServer({ store, noticeStore, access, bundledIconRoot, publicOrigin, adminDisabled });
   server.listen(port, host, () => {
     console.log(`HD2 stratagem catalog listening on http://${host}:${port} with ${bundledIconCount} bundled icons`);
   });
